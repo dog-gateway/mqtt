@@ -46,7 +46,7 @@ import it.polito.elite.dog.core.library.util.LogHelper;
  * @author <a href="dario.bonino@gmail.com">Dario Bonino</a>
  *
  */
-public class MqttAsyncDispatcher implements MqttCallback
+public class MqttAsyncDispatcher implements MqttCallback,IMqttActionListener
 {
 	// the default MQTT QoS (deliver and forget)
 	private static final MqttQos DEFAULT_QOS = MqttQos.AT_MOST_ONCE;
@@ -521,6 +521,20 @@ public class MqttAsyncDispatcher implements MqttCallback
 	public boolean removeMqttMesssageListener(MqttMessageListener listener)
 	{
 		return this.listeners.remove(listener);
+	}
+
+	@Override
+	public void onFailure(IMqttToken arg0, Throwable arg1)
+	{
+		// TODO Auto-generated method stub
+		
+	}
+
+	@Override
+	public void onSuccess(IMqttToken arg0)
+	{
+		// TODO Auto-generated method stub
+		this.logger.log(LogService.LOG_INFO, "Success: "+arg0);
 	}
 
 }
