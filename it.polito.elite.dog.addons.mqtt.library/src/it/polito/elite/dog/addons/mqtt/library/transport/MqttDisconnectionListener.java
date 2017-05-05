@@ -43,7 +43,7 @@ public class MqttDisconnectionListener implements IMqttActionListener
 	@Override
 	public void onFailure(IMqttToken arg0, Throwable arg1)
 	{
-		this.theDispatcher.setConnected(true);
+		this.theDispatcher.setConnected(false);
 		
 	}
 	
@@ -57,7 +57,7 @@ public class MqttDisconnectionListener implements IMqttActionListener
 	@Override
 	public void onSuccess(IMqttToken arg0)
 	{
-		this.theDispatcher.setConnected(false);
+		this.theDispatcher.setConnected(true);
 	}
 	
 }
