@@ -497,7 +497,7 @@ public class MqttAsyncDispatcher implements MqttCallback,IMqttActionListener
 	public void unsubscribe(String topicFilter, MqttMessageListener listener)
 	{
 		this.unsubscribe(topicFilter);
-		this.removeMqttMesssageListener(listener);
+		this.removeMqttMessageListener(listener);
 
 	}
 
@@ -506,7 +506,7 @@ public class MqttAsyncDispatcher implements MqttCallback,IMqttActionListener
 	 * 
 	 * @param listener
 	 */
-	public void addMqttMesssageListener(MqttMessageListener listener)
+	public void addMqttMessageListener(MqttMessageListener listener)
 	{
 		// store the listener
 		this.listeners.add(listener);
@@ -518,7 +518,7 @@ public class MqttAsyncDispatcher implements MqttCallback,IMqttActionListener
 	 * @param listener
 	 * @return
 	 */
-	public boolean removeMqttMesssageListener(MqttMessageListener listener)
+	public boolean removeMqttMessageListener(MqttMessageListener listener)
 	{
 		return this.listeners.remove(listener);
 	}
