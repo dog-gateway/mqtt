@@ -17,8 +17,9 @@
  */
 package it.polito.elite.dog.addons.mqtt.bridge.translators;
 
+import org.osgi.service.log.Logger;
+
 import it.polito.elite.dog.core.library.model.DeviceStatus;
-import it.polito.elite.dog.core.library.util.LogHelper;
 
 /**
  * The StateTranslator interface to be registered in the framework for
@@ -32,5 +33,5 @@ public interface StateTranslator
 {
 	public byte[] translateState(DeviceStatus state);
 	
-	public byte[] translateState(DeviceStatus state, LogHelper logger);
+	public byte[] translateState(DeviceStatus state, Logger logger);
 }

@@ -17,8 +17,9 @@
  */
 package it.polito.elite.dog.addons.mqtt.bridge.translators;
 
+import org.osgi.service.log.Logger;
+
 import it.polito.elite.dog.core.library.model.notification.Notification;
-import it.polito.elite.dog.core.library.util.LogHelper;
 
 /**
  * The NotificationTranslator interface to be registered in the framework for
@@ -30,7 +31,7 @@ import it.polito.elite.dog.core.library.util.LogHelper;
  */
 public interface NotificationTranslator
 {
-	public byte[] translateNotification(Notification notification);
+    public byte[] translateNotification(Notification notification);
 
-	byte[] translateNotification(Notification notification, LogHelper logger);
+    byte[] translateNotification(Notification notification, Logger logger);
 }

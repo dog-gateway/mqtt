@@ -18,7 +18,6 @@
 package it.polito.elite.dog.addons.mqtt.bridge.translators;
 
 import it.polito.elite.dog.core.library.model.notification.Notification;
-import it.polito.elite.dog.core.library.util.LogHelper;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
@@ -32,7 +31,7 @@ import javax.measure.DecimalMeasure;
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
 import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
-import org.osgi.service.log.LogService;
+import org.osgi.service.log.Logger;
 
 /**
  * A simple implementation of {@link NotificationTranslator} supporting basic
@@ -67,7 +66,7 @@ public class SimpleNotificationTranslator implements NotificationTranslator
     @SuppressWarnings("unchecked")
     @Override
     public byte[] translateNotification(Notification notification,
-            LogHelper logger)
+            Logger logger)
     {
 
         HashMap<String, Object> notificationContent = new HashMap<String, Object>();
@@ -145,8 +144,8 @@ public class SimpleNotificationTranslator implements NotificationTranslator
                     // if something went wrong we want to continue with
                     // the other notification fields
                     if (logger != null)
-                        logger.log(LogService.LOG_WARNING,
-                                "Ops! Something goes wrong in parsing a notification... skip!",
+                        logger.warn("Ops! Something went wrong in parsing "
+                                + "a notification... skip!",
                                 e);
                     else
                         e.printStackTrace(System.err);
@@ -165,8 +164,8 @@ public class SimpleNotificationTranslator implements NotificationTranslator
         {
             // the other notification fields
             if (logger != null)
-                logger.log(LogService.LOG_WARNING,
-                        "Ops! Something went wrong in transforming a notification... skip!",
+                logger.warn("Ops! Something went wrong in transforming "
+                        + "a notification... skip!",
                         e);
             else
                 e.printStackTrace(System.err);
