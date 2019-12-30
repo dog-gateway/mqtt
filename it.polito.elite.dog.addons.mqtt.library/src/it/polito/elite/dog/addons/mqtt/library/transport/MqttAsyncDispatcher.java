@@ -17,12 +17,20 @@
  */
 package it.polito.elite.dog.addons.mqtt.library.transport;
 
+import java.io.IOException;
+import java.security.KeyManagementException;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.Timer;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+
+import javax.net.ssl.SSLSocketFactory;
 
 import org.eclipse.paho.client.mqttv3.IMqttActionListener;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
@@ -35,6 +43,8 @@ import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MqttDefaultFilePersistence;
 import org.osgi.service.log.LogService;
 
+import it.polito.elite.dog.addons.mqtt.library.transport.ssl.SslUtils;
+
 import it.polito.elite.dog.addons.mqtt.library.transport.tasks.ReconnectionTimerTask;
 import it.polito.elite.dog.core.library.util.LogHelper;
 
@@ -46,495 +56,576 @@ import it.polito.elite.dog.core.library.util.LogHelper;
  * @author <a href="dario.bonino@gmail.com">Dario Bonino</a>
  *
  */
-public class MqttAsyncDispatcher implements MqttCallback,IMqttActionListener
+public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
 {
-	// the default MQTT QoS (deliver and forget)
-	private static final MqttQos DEFAULT_QOS = MqttQos.AT_MOST_ONCE;
+    // the default MQTT QoS (deliver and forget)
+    private static final MqttQos DEFAULT_QOS = MqttQos.AT_MOST_ONCE;
 
-	// the default reconnection timeout
-	private static final int RECONNECTION_TIMEOUT = 30000;
+    // the default reconnection timeout
+    private static final int RECONNECTION_TIMEOUT = 30000;
 
-	// the class-level logger
-	private LogHelper logger;
+    // the class-level logger
+    private LogHelper logger;
+    // the MQTT asynchronous client
+    private MqttAsyncClient asyncClient;
+    // the MQTT connection options
+    private MqttConnectOptions connectionOptions;
+    // the MQTT broker endpoint as full url
+    private String brokerUrl;
+    // this client id
+    private String clientId;
+    // the username to use when setting up the connection
+    private String username;
+    // the password to use when setting up the connection
+    private String password;
+    // the connection flag
+    private boolean connected;
+    // the timer for reconnection
+    private Timer reconnectionTimer;
+    // the reconnection flag
+    private boolean autoReconnect;
+    // the clean session flag
+    private boolean cleanSession;
+    // the ssl information
+    private String sslCa;
+    private String sslCert;
+    private String sslPrivateKey;
 
-	// the MQTT asynchronous client
-	private MqttAsyncClient asyncClient;
+    // the set of listeners for subscribed topics
+    private Set<MqttMessageListener> listeners;
 
-	// the MQTT connection options
-	private MqttConnectOptions connectionOptions;
+    // the executor service for dispatching messages
+    private ExecutorService execService;
 
-	// the MQTT broker endpoint as full url
-	private String brokerUrl;
+    /**
+     * The class constructor. Builds a new instance of
+     * {@link MqttAsyncDispatcher} pointing to the given brokerUrl and adopting
+     * the given username and password for connecting to the broker. It uses the
+     * default Quality of Service (QoS) defined in {@link MqttAsyncDispatcher}
+     * .DEFAULT_QOS or the QoS level defined through the instance setQoS method.
+     * Moreover it does not persist sessions across restarts, i.e., it does not
+     * provide durable subscriptions
+     * 
+     * Currently only "plain" connection is supported although future release
+     * may support ssl-encrypted connections.
+     * 
+     * @param brokerUrl
+     *            The full url of the broker, as a {String}.
+     * @param clientId
+     *            The client id to connect with.
+     * @param username
+     *            The username to adopt for connecting to the broker.
+     * @param password
+     *            The password to adopt for connecting to the broker.
+     */
+    public MqttAsyncDispatcher(String brokerUrl, String clientId,
+            String username, String password, LogHelper logger)
+    {
+        this.initCommon(brokerUrl, clientId, username, password, null, null,
+                null, true, true, logger);
+    }
 
-	// this client id
-	private String clientId;
+    /**
+     * The class constructor. Builds a new instance of
+     * {@link MqttAsyncDispatcher} pointing to the given brokerUrl and adopting
+     * the given username and password for connecting to the broker. It uses the
+     * default Quality of Service (QoS) defined in {@link MqttAsyncDispatcher}
+     * .DEFAULT_QOS or the QoS level defined through the instance setQoS method.
+     * Moreover it does not persist sessions across restarts, i.e., it does not
+     * provide durable subscriptions
+     * 
+     * Currently only "plain" connection is supported although future release
+     * may support ssl-encrypted connections.
+     * 
+     * @param brokerUrl
+     *            The full url of the broker, as a {String}.
+     * @param clientId
+     *            The client id to connect with.
+     * @param username
+     *            The username to adopt for connecting to the broker.
+     * @param password
+     *            The password to adopt for connecting to the broker.
+     * @param autoReconnect
+     *            The auto-reconnection mode, is true the client automatically
+     *            attempts re-connection.
+     */
+    public MqttAsyncDispatcher(String brokerUrl, String clientId,
+            String username, String password, boolean autoReconnect,
+            LogHelper logger)
+    {
+        this.initCommon(brokerUrl, clientId, username, password, null, null,
+                null, autoReconnect, true, logger);
+    }
 
-	// the username to use when setting up the connection
-	private String username;
+    private void initCommon(String brokerUrl, String clientId, String username,
+            String password, String sslCa, String sslCert, String sslPrivateKey,
+            boolean autoReconnect, boolean cleanSession, LogHelper logger)
+    {
+        this.brokerUrl = brokerUrl;
+        this.clientId = clientId;
+        this.username = username;
+        this.password = password;
+        this.cleanSession = cleanSession;
+        this.autoReconnect = autoReconnect;
+        this.sslCa = sslCa;
+        this.sslCert = sslCert;
+        this.sslPrivateKey = sslPrivateKey;
+        this.logger = logger;
 
-	// the password to use when setting up the connection
-	private String password;
+        // initialize the set of listeners for mqtt messages
+        this.listeners = new HashSet<MqttMessageListener>();
+        // initialize the executor service for delivering mqtt messages
+        this.execService = Executors.newCachedThreadPool();
+        // initialize the reconnection timer
+        this.reconnectionTimer = new Timer();
 
-	// the connection flag
-	private boolean connected;
+        // initially disconnected
+        this.connected = false;
 
-	// the timer for reconnection
-	private Timer reconnectionTimer;
+        // get the default Java temporary files directory
+        String tmpDir = System.getProperty("java.io.tmpdir");
 
-	// the reconnection flag
-	private boolean autoReconnect;
+        // prepare a simple persistence layer that stores data as files in the
+        // temporary directory
+        MqttDefaultFilePersistence dataStore = new MqttDefaultFilePersistence(
+                tmpDir);
+        // build connection options
+        this.connectionOptions = this.buildOptions();
 
-	// the set of listeners for subscribed topics
-	private Set<MqttMessageListener> listeners;
+        // build the MqttClient instance
+        try
+        {
+            // build the client instance
+            this.asyncClient = new MqttAsyncClient(this.brokerUrl,
+                    this.clientId, dataStore);
 
-	// the executor service for dispatchinh messages
-	private ExecutorService execService;
+            // set this call instance as callback for the asynchronous delivery
+            // task
+            this.asyncClient.setCallback(this);
+        }
+        catch (MqttException e)
+        {
+            // log the error
+            this.logger.log(LogService.LOG_ERROR,
+                    "Error while creating the MQTT asynchronous client", e);
+        }
+    }
 
-	/**
-	 * The class constructor. Builds a new instance of
-	 * {@link MqttAsyncDispatcher} pointing to the given brokerUrl and adopting
-	 * the given username and password for connecting to the broker. It uses the
-	 * default Quality of Service (QoS) defined in {@link MqttAsyncDispatcher}
-	 * .DEFAULT_QOS or the QoS level defined through the instance setQoS method.
-	 * Moreover it does not persist sessions across restarts, i.e., it does not
-	 * provide durable subscriptions
-	 * 
-	 * Currently only "plain" connection is supported although future release
-	 * may support ssl-encrypted connections.
-	 * 
-	 * @param brokerUrl
-	 *            The full url of the broker, as a {String}.
-	 * @param clientId
-	 *            The client id to connect with.
-	 * @param username
-	 *            The username to adopt for connecting to the broker.
-	 * @param password
-	 *            The password to adopt for connecting to the broker.
-	 */
-	public MqttAsyncDispatcher(String brokerUrl, String clientId,
-			String username, String password, LogHelper logger)
-	{
-		this.initCommon(brokerUrl, clientId, username, password, true, logger);
-	}
+    /**
+     * Builds the {@link MqttConnectOptions} for this dispatcher, exploiting
+     * available data.
+     * 
+     * @return The {@link MqttConnectOptions} instance to use.
+     */
+    private MqttConnectOptions buildOptions()
+    {
+        // build the connection options
+        MqttConnectOptions connectionOptions = new MqttConnectOptions();
 
-	/**
-	 * The class constructor. Builds a new instance of
-	 * {@link MqttAsyncDispatcher} pointing to the given brokerUrl and adopting
-	 * the given username and password for connecting to the broker. It uses the
-	 * default Quality of Service (QoS) defined in {@link MqttAsyncDispatcher}
-	 * .DEFAULT_QOS or the QoS level defined through the instance setQoS method.
-	 * Moreover it does not persist sessions across restarts, i.e., it does not
-	 * provide durable subscriptions
-	 * 
-	 * Currently only "plain" connection is supported although future release
-	 * may support ssl-encrypted connections.
-	 * 
-	 * @param brokerUrl
-	 *            The full url of the broker, as a {String}.
-	 * @param clientId
-	 *            The client id to connect with.
-	 * @param username
-	 *            The username to adopt for connecting to the broker.
-	 * @param password
-	 *            The password to adopt for connecting to the broker.
-	 * @param autoReconnect
-	 *            The auto-reconnection mode, is true the client automatically
-	 *            attempts re-connection.
-	 */
-	public MqttAsyncDispatcher(String brokerUrl, String clientId,
-			String username, String password, boolean autoReconnect,
-			LogHelper logger)
-	{
-		this.initCommon(brokerUrl, clientId, username, password, autoReconnect,
-				logger);
-	}
+        // set the clean session parameters
+        connectionOptions.setCleanSession(this.cleanSession);
 
-	private void initCommon(String brokerUrl, String clientId, String username,
-			String password, boolean autoReconnect, LogHelper logger)
-	{
-		this.brokerUrl = brokerUrl;
-		this.clientId = clientId;
-		this.username = username;
-		this.password = password;
-		this.logger = logger; // TODO handle context here
+        // set the password, if provided
+        if ((this.password != null) && (!this.password.isEmpty()))
+        {
+            connectionOptions.setPassword(this.password.toCharArray());
+        }
 
-		// initialize the set of listeners for mqtt messages
-		this.listeners = new HashSet<MqttMessageListener>();
+        // set the username, if provided
+        if ((this.username != null) && (!this.username.isEmpty()))
+        {
+            connectionOptions.setUserName(username);
+        }
 
-		// initialize the executor service for delivering mqtt messages
-		this.execService = Executors.newCachedThreadPool();
+        // Allow for connections with CA-only. This permits to set-up an
+        // encrypted
+        // channel between the client and the broker
+        // without forcing authentication through client certificates
+        SSLSocketFactory sslSocketFactory = null;
 
-		// initialize the reconnection timer
-		this.reconnectionTimer = new Timer();
+        if (sslCa != null)
+        {
+            // client key and certificate have been specified, handle them
+            if (sslCert != null && sslPrivateKey != null)
+            {
+                try
+                {
+                    sslSocketFactory = SslUtils.getSslSocketFactory(sslCa,
+                            sslCert, sslPrivateKey, "");
+                }
+                catch (IOException | KeyStoreException
+                        | NoSuchAlgorithmException | CertificateException
+                        | UnrecoverableKeyException | KeyManagementException ex)
+                {
+                    this.logger.log(LogService.LOG_ERROR,
+                            "unable to create SSL Socket Factory:\n" + ex);
+                }
+            }
+            else
+            {
+                try
+                {
+                    // set the MQTT connection socket factory to be used
+                    sslSocketFactory = SslUtils
+                            .getCaOnlySslSocketFactory(sslCa);
+                }
+                catch (IOException | KeyStoreException
+                        | NoSuchAlgorithmException | CertificateException
+                        | UnrecoverableKeyException | KeyManagementException ex)
+                {
+                    this.logger.log(LogService.LOG_ERROR,
+                            "unable to create SSL Socket Factory:\n{}" + ex);
+                }
 
-		// store the auto-reconnection flag
-		this.autoReconnect = autoReconnect;
+            }
+        }
 
-		// initially disconnected
-		this.connected = false;
+        // if the ssl socket factory is not null, add it to the options
+        if (sslSocketFactory != null)
+        {
+            connectionOptions.setSocketFactory(sslSocketFactory);
+        }
+        // set the broker url
+        connectionOptions.setServerURIs(new String[] { this.brokerUrl });
 
-		// get the default Java temporary files directory
-		String tmpDir = System.getProperty("java.io.tmpdir");
+        return connectionOptions;
+    }
 
-		// prepare a simple persistence layer that stores data as files in the
-		// temporary directory
-		MqttDefaultFilePersistence dataStore = new MqttDefaultFilePersistence(
-				tmpDir);
+    public void connectionLost(Throwable t)
+    {
+        // Called when the connection to the server has been lost.
+        // An application may choose to implement reconnection
+        // logic at this point. This preliminary implementation simply logs the
+        // error.
+        this.logger.log(LogService.LOG_WARNING,
+                "Lost connection with the given MQTT broker...Reconnecting in 30s",
+                t);
 
-		// build the connection options
-		this.connectionOptions = new MqttConnectOptions();
+        // set the connection status
+        this.setConnected(false);
 
-		// set the clean session parameters
-		this.connectionOptions.setCleanSession(true);
+    }
 
-		// set the password, if provided
-		if ((this.password != null) && (!this.password.isEmpty()))
-		{
-			this.connectionOptions.setPassword(this.password.toCharArray());
-		}
+    public void deliveryComplete(IMqttDeliveryToken token)
+    {
+        // Called when a message has been delivered to the
+        // server. The token passed in here is the same one
+        // that was returned from the original call to publish.
 
-		// set the username, if provided
-		if ((this.username != null) && (!this.username.isEmpty()))
-		{
-			this.connectionOptions.setUserName(username);
-		}
+        this.logger.log(LogService.LOG_INFO,
+                "Delivery complete callback: Publish Completed "
+                        + Arrays.toString(token.getTopics()));
 
-		// build the MqttClient instance
-		try
-		{
-			// build the client instance
-			this.asyncClient = new MqttAsyncClient(this.brokerUrl,
-					this.clientId, dataStore);
+    }
 
-			// set this call instance as callback for the asynchronous delivery
-			// task
-			this.asyncClient.setCallback(this);
-		}
-		catch (MqttException e)
-		{
-			// log the error
-			this.logger.log(LogService.LOG_ERROR,
-					"Error while creating the MQTT asynchronous client", e);
-		}
-	}
+    public void messageArrived(final String arg0, final MqttMessage mqttMessage)
+            throws Exception
+    {
+        // // Called when a message arrives from the server that matches any
+        // subscription made by the client
+        if (this.listeners.size() > 0)
+        {
+            this.execService.submit(new Runnable()
+            {
+                @Override
+                public void run()
+                {
+                    for (MqttMessageListener listener : listeners)
+                    {
+                        listener.messageArrived(arg0, mqttMessage);
+                    }
+                }
+            });
+        }
 
-	public void connectionLost(Throwable t)
-	{
-		// Called when the connection to the server has been lost.
-		// An application may choose to implement reconnection
-		// logic at this point. This preliminary implementation simply logs the
-		// error.
-		this.logger.log(LogService.LOG_WARNING,
-				"Lost connection with the given MQTT broker...Reconnecting in 30s",
-				t);
+        // empty in this case as this dispatcher only publishes data...
+        this.logger.log(LogService.LOG_INFO, "Unknow arg0:" + arg0);
+        this.logger.log(LogService.LOG_INFO,
+                "MqttMessage: " + new String(mqttMessage.getPayload()));
+    }
 
-		// set the connection status
-		this.setConnected(false);
+    /**
+     * Checks if the dispatcher is currently connected or not
+     * 
+     * @return the current connection status
+     */
+    public boolean isConnected()
+    {
+        return connected;
+    }
 
-	}
+    /**
+     * Sets the dispatcher status to either connected or not.
+     * 
+     * @param connected
+     *            the connection status to be set
+     */
+    public void setConnected(boolean connected)
+    {
+        this.connected = connected;
 
-	public void deliveryComplete(IMqttDeliveryToken token)
-	{
-		// Called when a message has been delivered to the
-		// server. The token passed in here is the same one
-		// that was returned from the original call to publish.
+        // if disconnected, and auto-reconnection is enabled, try to reconnect
+        if ((!this.connected) && (this.autoReconnect))
+        {
+            // start the timer
+            this.reconnectionTimer.schedule(
+                    new ReconnectionTimerTask(this, true),
+                    MqttAsyncDispatcher.RECONNECTION_TIMEOUT);
+        }
+    }
 
-		this.logger.log(LogService.LOG_INFO,
-				"Delivery complete callback: Publish Completed "
-						+ Arrays.toString(token.getTopics()));
+    /**
+     * Connect asynchronously to the given MQTT broker, when connected sets the
+     * connection flag at true;
+     * 
+     * The returned IMqttToken might be used to wrap the asynchronous call to a
+     * synchronous invocation.
+     * 
+     * @return The {@link IMqttToken} related to the connection request
+     */
+    public IMqttToken connect()
+    {
+        IMqttToken token = null;
+        try
+        {
+            token = this.asyncClient.connect(this.connectionOptions, "",
+                    new MqttConnectionListener(this));
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_WARNING,
+                    "Error while performing connection to the given MQTT broker",
+                    e);
+        }
 
-	}
+        return token;
+    }
 
-	public void messageArrived(final String arg0, final MqttMessage mqttMessage)
-			throws Exception
-	{
-		// // Called when a message arrives from the server that matches any
-		// subscription made by the client
-		if (this.listeners.size() > 0)
-		{
-			this.execService.submit(new Runnable()
-			{
-				@Override
-				public void run()
-				{
-					for (MqttMessageListener listener : listeners)
-					{
-						listener.messageArrived(arg0, mqttMessage);
-					}
-				}
-			});
-		}
+    /**
+     * Connect synchronously with the given MQTT broker
+     */
+    public void syncConnect()
+    {
+        try
+        {
+            this.connect().waitForCompletion();
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_WARNING,
+                    "Error while performing synchronous connection to the given MQTT broker",
+                    e);
+        }
+    }
 
-		// empty in this case as this dispatcher only publishes data...
-		this.logger.log(LogService.LOG_INFO, "Unknow arg0:" + arg0);
-		this.logger.log(LogService.LOG_INFO,
-				"MqttMessage: " + new String(mqttMessage.getPayload()));
-	}
+    /**
+     * Publishes the given message payload to the given topic using the
+     * class-level default QoS
+     * 
+     * @param topic
+     *            The topic to which the event should be published
+     * @param payload
+     *            The payload to publish
+     */
+    public void publish(String topic, byte[] payload)
+    {
 
-	/**
-	 * Checks if the dispatcher is currently connected or not
-	 * 
-	 * @return the current connection status
-	 */
-	public boolean isConnected()
-	{
-		return connected;
-	}
+        // asynchronously publishes the given payload to the given topic
+        this.publish(topic, payload, MqttAsyncDispatcher.DEFAULT_QOS);
 
-	/**
-	 * Sets the dispatcher status to either connected or not.
-	 * 
-	 * @param connected
-	 *            the connection status to be set
-	 */
-	public void setConnected(boolean connected)
-	{
-		this.connected = connected;
+    }
 
-		// if disconnected, and auto-reconnection is enabled, try to reconnect
-		if ((!this.connected) && (this.autoReconnect))
-		{
-			// start the timer
-			this.reconnectionTimer.schedule(
-					new ReconnectionTimerTask(this, true),
-					MqttAsyncDispatcher.RECONNECTION_TIMEOUT);
-		}
-	}
+    /**
+     * Publishes the given message payload to the given topic using the given
+     * QoS level
+     * 
+     * @param topic
+     *            The topic to which the event should be published
+     * @param payload
+     *            The payload to publish
+     * @param qos
+     *            The QoS to use
+     */
+    public void publish(String topic, byte[] payload, MqttQos qos)
+    {
+        if (this.connected)
+        {
+            try
+            {
+                // asynchronously publishes the given payload to the given topic
+                this.asyncClient.publish(topic, payload, qos.getQoS(), false);
+            }
+            catch (MqttException e)
+            {
+                // TODO can be checked in a more refined manner
+                this.logger.log(LogService.LOG_WARNING,
+                        "Error while delivering message", e);
+            }
+        }
+    }
 
-	/**
-	 * Connect asynchronously to the given MQTT broker, when connected sets the
-	 * connection flag at true;
-	 * 
-	 * The returned IMqttToken might be used to wrap the asynchronous call to a
-	 * synchronous invocation.
-	 * 
-	 * @return The {@link IMqttToken} related to the connection request
-	 */
-	public IMqttToken connect()
-	{
-		IMqttToken token = null;
-		try
-		{
-			token = this.asyncClient.connect(this.connectionOptions, "",
-					new MqttConnectionListener(this));
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_WARNING,
-					"Error while performing connection to the given MQTT broker",
-					e);
-		}
+    /**
+     * Asynchronously disconnects from the given message broker when
+     * disconnected sets the connection flag at false;
+     * 
+     * The returned IMqttToken might be used to wrap the asynchronous call to a
+     * synchronous invocation.
+     * 
+     * @return The {@link IMqttToken} related to the connection request
+     */
+    public IMqttToken disconnect()
+    {
+        IMqttToken token = null;
 
-		return token;
-	}
+        try
+        {
+            token = this.asyncClient.disconnect("",
+                    new MqttDisconnectionListener(this));
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_WARNING,
+                    "Error while performing connection to the given MQTT broker",
+                    e);
+        }
 
-	/**
-	 * Connect synchronously with the given MQTT broker
-	 */
-	public void syncConnect()
-	{
-		try
-		{
-			this.connect().waitForCompletion();
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_WARNING,
-					"Error while performing synchronous connection to the given MQTT broker",
-					e);
-		}
-	}
+        return token;
+    }
 
-	/**
-	 * Publishes the given message payload to the given topic using the
-	 * class-level default QoS
-	 * 
-	 * @param topic
-	 *            The topic to which the event should be published
-	 * @param payload
-	 *            The payload to publish
-	 */
-	public void publish(String topic, byte[] payload)
-	{
+    /**
+     * Disconnects synchronously from the given MQTT broker
+     */
+    public void syncDisconnect()
+    {
+        try
+        {
+            this.disconnect().waitForCompletion();
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_ERROR, "Error while disconnecting");
+        }
+    }
+    
+    /**
+     * Closes a client
+     */
+    public void close()
+    {
+        try
+        {
+            this.asyncClient.close();
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_ERROR, "Error while closing the client.");
+        }
+    }
 
-		// asynchronously publishes the given payload to the given topic
-		this.publish(topic, payload, MqttAsyncDispatcher.DEFAULT_QOS);
+    public void subscribe(String topicFilter, int qos) // , IMqttActionListener
+                                                       // listener)
+    {
+        try
+        {
+            this.asyncClient.subscribe(topicFilter, qos, null,
+                    (IMqttActionListener) this);
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_ERROR, "Mqtt subscribe exception: ",
+                    e);
+        }
+    }
 
-	}
+    /**
+     * Subscribe to the given topic, with the given QoS and register a listener
+     * for received messages (unfiltered, if any other subscriptions have been
+     * made all messages will be delivered to the listener)
+     * 
+     * @param topicFilter
+     *            The topic to subscribe
+     * @param qos
+     *            The QoS with which subscribing
+     * @param listener
+     *            The listener to be notified of new messages
+     */
+    public void subscribe(String topicFilter, int qos,
+            MqttMessageListener listener)
+    {
+        // subscribe
+        this.subscribe(topicFilter, qos);
 
-	/**
-	 * Publishes the given message payload to the given topic using the given
-	 * QoS level
-	 * 
-	 * @param topic
-	 *            The topic to which the event should be published
-	 * @param payload
-	 *            The payload to publish
-	 * @param qos
-	 *            The QoS to use
-	 */
-	public void publish(String topic, byte[] payload, MqttQos qos)
-	{
-		if (this.connected)
-		{
-			try
-			{
-				// asynchronously publishes the given payload to the given topic
-				this.asyncClient.publish(topic, payload, qos.getQoS(), false);
-			}
-			catch (MqttException e)
-			{
-				// TODO can be checked in a more refined manner
-				this.logger.log(LogService.LOG_WARNING,
-						"Error while delivering message", e);
-			}
-		}
-	}
+        // store the listener
+        this.listeners.add(listener);
+    }
 
-	/**
-	 * Asynchronously disconnects from the given message broker when
-	 * disconnected sets the connection flag at false;
-	 * 
-	 * The returned IMqttToken might be used to wrap the asynchronous call to a
-	 * synchronous invocation.
-	 * 
-	 * @return The {@link IMqttToken} related to the connection request
-	 */
-	public IMqttToken disconnect()
-	{
-		IMqttToken token = null;
+    /**
+     * Unsubscribes from the given topic
+     * 
+     * @param topicFilter
+     */
+    public void unsubscribe(String topicFilter)
+    {
+        try
+        {
+            this.asyncClient.unsubscribe(topicFilter);
 
-		try
-		{
-			token = this.asyncClient.disconnect("",
-					new MqttDisconnectionListener(this));
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_WARNING,
-					"Error while performing connection to the given MQTT broker",
-					e);
-		}
+        }
+        catch (MqttException e)
+        {
+            this.logger.log(LogService.LOG_ERROR,
+                    "Mqtt unsubscribe exception: ", e);
+        }
+    }
 
-		return token;
-	}
+    /**
+     * Unsubscribes from the given topic and removes the given
+     * {@link MqttMessageListener}.
+     * 
+     * @param topicFilter
+     * @param listener
+     */
+    public void unsubscribe(String topicFilter, MqttMessageListener listener)
+    {
+        this.unsubscribe(topicFilter);
+        this.removeMqttMessageListener(listener);
 
-	/**
-	 * Disconnects synchronously from the given MQTT broker
-	 */
-	public void syncDisconnect()
-	{
-		try
-		{
-			this.disconnect().waitForCompletion();
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_ERROR, "Error while disconnecting");
-		}
-	}
+    }
 
-	public void subscribe(String topicFilter, int qos) // , IMqttActionListener
-														// listener)
-	{
-		try
-		{
-			this.asyncClient.subscribe(topicFilter, qos, null,
-					(IMqttActionListener) this);
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_ERROR, "Mqtt subscribe exception: ",
-					e);
-		}
-	}
+    /**
+     * Adds a listener for Mqtt messages listened by this dispatcher/client
+     * 
+     * @param listener
+     */
+    public void addMqttMessageListener(MqttMessageListener listener)
+    {
+        // store the listener
+        this.listeners.add(listener);
+    }
 
-	/**
-	 * Subscribe to the given topic, with the given QoS and register a listener
-	 * for received messages (unfiltered, if any other subscriptions have been
-	 * made all messages will be delivered to the listener)
-	 * 
-	 * @param topicFilter
-	 *            The topic to subscribe
-	 * @param qos
-	 *            The QoS with which subscribing
-	 * @param listener
-	 *            The listener to be notified of new messages
-	 */
-	public void subscribe(String topicFilter, int qos,
-			MqttMessageListener listener)
-	{
-		// subscribe
-		this.subscribe(topicFilter, qos);
+    /**
+     * Removes a listener for Mqtt messages listened by this dispatcher/client
+     * 
+     * @param listener
+     * @return
+     */
+    public boolean removeMqttMessageListener(MqttMessageListener listener)
+    {
+        return this.listeners.remove(listener);
+    }
 
-		// store the listener
-		this.listeners.add(listener);
-	}
+    @Override
+    public void onFailure(IMqttToken arg0, Throwable arg1)
+    {
+        // TODO Auto-generated method stub
 
-	/**
-	 * Unsubscribes from the given topic
-	 * @param topicFilter
-	 */
-	public void unsubscribe(String topicFilter)
-	{
-		try
-		{
-			this.asyncClient.unsubscribe(topicFilter);
+    }
 
-		}
-		catch (MqttException e)
-		{
-			this.logger.log(LogService.LOG_ERROR,
-					"Mqtt unsubscribe exception: ", e);
-		}
-	}
-
-	/**
-	 * Unsubscribes from the given topic and removes the given {@link MqttMessageListener}.
-	 * @param topicFilter
-	 * @param listener
-	 */
-	public void unsubscribe(String topicFilter, MqttMessageListener listener)
-	{
-		this.unsubscribe(topicFilter);
-		this.removeMqttMessageListener(listener);
-
-	}
-
-	/**
-	 * Adds a listener for Mqtt messages listened by this dispatcher/client
-	 * 
-	 * @param listener
-	 */
-	public void addMqttMessageListener(MqttMessageListener listener)
-	{
-		// store the listener
-		this.listeners.add(listener);
-	}
-
-	/**
-	 * Removes a listener for Mqtt messages listened by this dispatcher/client
-	 * 
-	 * @param listener
-	 * @return
-	 */
-	public boolean removeMqttMessageListener(MqttMessageListener listener)
-	{
-		return this.listeners.remove(listener);
-	}
-
-	@Override
-	public void onFailure(IMqttToken arg0, Throwable arg1)
-	{
-		// TODO Auto-generated method stub
-		
-	}
-
-	@Override
-	public void onSuccess(IMqttToken arg0)
-	{
-		// TODO Auto-generated method stub
-		this.logger.log(LogService.LOG_INFO, "Success: "+arg0);
-	}
+    @Override
+    public void onSuccess(IMqttToken arg0)
+    {
+        // TODO Auto-generated method stub
+        this.logger.log(LogService.LOG_INFO, "Success: " + arg0);
+    }
 
 }

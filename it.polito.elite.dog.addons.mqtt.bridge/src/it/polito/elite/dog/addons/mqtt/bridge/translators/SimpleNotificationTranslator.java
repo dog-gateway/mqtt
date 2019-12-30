@@ -22,9 +22,12 @@ import it.polito.elite.dog.core.library.util.LogHelper;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 
-import javax.measure.Measure;
+import javax.measure.DecimalMeasure;
 
 import org.codehaus.jackson.map.ObjectMapper;
 import org.codehaus.jackson.map.SerializationConfig;
@@ -41,111 +44,137 @@ import org.osgi.service.log.LogService;
  */
 public class SimpleNotificationTranslator implements NotificationTranslator
 {
-	private ObjectMapper mapper;
+    private ObjectMapper mapper;
 
-	public SimpleNotificationTranslator()
-	{
-		// initialize the instance-wide object mapper
-		this.mapper = new ObjectMapper();
-		// set the mapper pretty printing
-		this.mapper.enable(SerializationConfig.Feature.INDENT_OUTPUT);
-		// avoid empty arrays and null values
-		this.mapper.configure(
-				SerializationConfig.Feature.WRITE_EMPTY_JSON_ARRAYS, false);
-		this.mapper.setSerializationInclusion(Inclusion.NON_NULL);
-	}
+    public SimpleNotificationTranslator()
+    {
+        // initialize the instance-wide object mapper
+        this.mapper = new ObjectMapper();
+        // set the mapper pretty printing
+        this.mapper.enable(SerializationConfig.Feature.INDENT_OUTPUT);
+        // avoid empty arrays and null values
+        this.mapper.configure(
+                SerializationConfig.Feature.WRITE_EMPTY_JSON_ARRAYS, false);
+        this.mapper.setSerializationInclusion(Inclusion.NON_NULL);
+    }
 
-	@Override
-	public byte[] translateNotification(Notification notification)
-	{
-		return this.translateNotification(notification, null);
-	}
+    @Override
+    public byte[] translateNotification(Notification notification)
+    {
+        return this.translateNotification(notification, null);
+    }
 
-	@Override
-	public byte[] translateNotification(Notification notification,
-			LogHelper logger)
-	{
+    @SuppressWarnings("unchecked")
+    @Override
+    public byte[] translateNotification(Notification notification,
+            LogHelper logger)
+    {
 
-		HashMap<String, String> notificationContent = new HashMap<String, String>();
+        HashMap<String, Object> notificationContent = new HashMap<String, Object>();
 
-		if (notification != null)
-		{
-			// transparently translate the notification fields into a key-value
-			// representation, as this is the baseline transformer a more
-			// "complex" and "purposeful" approach is expected in "specific"
-			// translator implementations.
-			for (Field notificationField : notification.getClass()
-					.getDeclaredFields())
-			{
-				// override access protection
-				notificationField.setAccessible(true);
+        if (notification != null)
+        {
+            // add the timestamp information
+            notificationContent.put("timestamp",
+                    ZonedDateTime.now(ZoneOffset.UTC)
+                            .format(DateTimeFormatter.ISO_OFFSET_DATE_TIME));
+            // transparently translate the notification fields into a key-value
+            // representation, as this is the baseline transformer a more
+            // "complex" and "purposeful" approach is expected in "specific"
+            // translator implementations.
+            for (Field notificationField : notification.getClass()
+                    .getDeclaredFields())
+            {
+                // override access protection
+                notificationField.setAccessible(true);
 
-				// get the field name
-				String notificationFieldName = notificationField.getName();
+                // get the field name
+                String notificationFieldName = notificationField.getName();
 
-				// get the field value (only Strings or Measures)
-				Object notificationFieldValue = null;
-				try
-				{
-					String notificationFieldValueFinal = "";
-					notificationFieldValue = notificationField
-							.get(notification);
-					// the content could be a measure or a string only
-					if (notificationFieldValue instanceof Measure<?, ?>)
-						notificationFieldValueFinal = notificationFieldValue
-								.toString();
-					else if (notificationFieldValue instanceof String)
-						notificationFieldValueFinal = (String) notificationFieldValue;
+                // get the field value (only Strings or Measures)
+                Object notificationFieldValue = null;
+                try
+                {
+                    notificationFieldValue = notificationField
+                            .get(notification);
+                    // the content could be a measure or a string only
+                    if (notificationFieldValue != null)
+                    {
+                        if (notificationFieldValue instanceof DecimalMeasure)
+                        {
+                            @SuppressWarnings("rawtypes")
+                            DecimalMeasure measure = (DecimalMeasure) notificationFieldValue;
+                            notificationContent.put("unit",
+                                    measure.getUnit().toString());
+                            notificationContent.put("value", Double.valueOf(
+                                    measure.doubleValue(measure.getUnit())));
+                        }
+                        else if (notificationFieldValue instanceof Boolean)
+                        {
+                            notificationContent.put("value",
+                                    notificationFieldValue);
+                        }
+                        else
+                        {
+                            // extract the notification topic (without
+                            // osgi-specific
+                            // information)
+                            if (notificationFieldName
+                                    .equals("notificationTopic"))
+                            {
+                                String[] fieldValueFinalParts = ((String) notificationFieldValue)
+                                        .split("/");
+                                Object notificationFieldValueFinal = fieldValueFinalParts[fieldValueFinalParts.length
+                                        - 1];
+                                // insert the acquired information in the map
+                                notificationContent.put(notificationFieldName,
+                                        notificationFieldValueFinal);
+                            }
+                            else
+                            {
+                                notificationContent.put(notificationFieldName,
+                                        notificationFieldValue);
+                            }
+                        }
 
-					// extract the notification topic (without osgi-specific
-					// information)
-					if (notificationFieldName.equals("notificationTopic"))
-					{
-						String[] fieldValueFinalParts = notificationFieldValueFinal
-								.split("/");
-						notificationFieldValueFinal = fieldValueFinalParts[fieldValueFinalParts.length - 1];
-					}
+                    }
 
-					// insert the acquired information in the map
-					notificationContent.put(notificationFieldName,
-							notificationFieldValueFinal);
-				}
-				catch (Exception e)
-				{
-					// if something went wrong we want to continue with
-					// the other notification fields
-					if (logger != null)
-						logger.log(
-								LogService.LOG_WARNING,
-								"Ops! Something goes wrong in parsing a notification... skip!",
-								e);
-					else
-						e.printStackTrace(System.err);
-				}
-			}
-		}
+                }
+                catch (Exception e)
+                {
+                    // if something went wrong we want to continue with
+                    // the other notification fields
+                    if (logger != null)
+                        logger.log(LogService.LOG_WARNING,
+                                "Ops! Something goes wrong in parsing a notification... skip!",
+                                e);
+                    else
+                        e.printStackTrace(System.err);
+                }
+            }
+        }
 
-		// the resulting map shall be wrapped into a json string
-		String translatedNotification = null;
-		try
-		{
-			translatedNotification = this.mapper
-					.writeValueAsString(notificationContent);
-		}
-		catch (IOException e)
-		{
-			// the other notification fields
-			if (logger != null)
-				logger.log(
-						LogService.LOG_WARNING,
-						"Ops! Something went wrong in transforming a notification... skip!",
-						e);
-			else
-				e.printStackTrace(System.err);
-		}
+        // the resulting map shall be wrapped into a json string
+        String translatedNotification = null;
+        try
+        {
+            translatedNotification = this.mapper
+                    .writeValueAsString(notificationContent);
+        }
+        catch (IOException e)
+        {
+            // the other notification fields
+            if (logger != null)
+                logger.log(LogService.LOG_WARNING,
+                        "Ops! Something went wrong in transforming a notification... skip!",
+                        e);
+            else
+                e.printStackTrace(System.err);
+        }
 
-		return (translatedNotification != null) ? translatedNotification
-				.getBytes() : new byte[0];
-	}
+        return (translatedNotification != null)
+                ? translatedNotification.getBytes()
+                : new byte[0];
+    }
 
 }
