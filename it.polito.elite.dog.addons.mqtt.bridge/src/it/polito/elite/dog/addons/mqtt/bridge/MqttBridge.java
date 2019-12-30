@@ -27,7 +27,6 @@ import it.polito.elite.dog.addons.mqtt.library.transport.MqttAsyncDispatcher;
 import it.polito.elite.dog.addons.mqtt.library.transport.MqttQos;
 import it.polito.elite.dog.core.library.model.DeviceStatus;
 import it.polito.elite.dog.core.library.model.notification.Notification;
-import it.polito.elite.dog.core.library.util.LogHelper;
 
 import java.util.Dictionary;
 import java.util.HashMap;
@@ -40,6 +39,7 @@ import java.util.UUID;
 import java.util.Vector;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceRegistration;
@@ -49,6 +49,7 @@ import org.osgi.service.event.Event;
 import org.osgi.service.event.EventConstants;
 import org.osgi.service.event.EventHandler;
 import org.osgi.service.log.LogService;
+import org.osgi.service.log.Logger;
 
 /**
  * Implements a bridge between inner monitor (states) and notification events
@@ -79,7 +80,7 @@ public class MqttBridge implements EventHandler, ManagedService
     private static final String MQTT_QOS = "mqtt_qos";
 
     // the class logger
-    private LogHelper logger;
+    private Logger logger;
 
     // the context associated to this bundle
     private BundleContext context;
@@ -125,6 +126,9 @@ public class MqttBridge implements EventHandler, ManagedService
     // the message delivery service
     private ExecutorService messageDeliveryService;
 
+    // the log service used for logging
+    private AtomicReference<LogService> logService;
+
     /**
      * The class constructor, called before activation, initializes common
      * datastructure
@@ -137,6 +141,9 @@ public class MqttBridge implements EventHandler, ManagedService
      */
     public MqttBridge()
     {
+        // build the references to other services
+        this.logService = new AtomicReference<>();
+
         // build the needed data structures
         this.brokerAddresses = new HashSet<String>();
         this.brokerSpecificNotificationTranslatorClasses = new HashMap<String, String>();
@@ -156,12 +163,8 @@ public class MqttBridge implements EventHandler, ManagedService
      */
     protected void activate(BundleContext ctx)
     {
-        // init the logger with a null logger
-        this.logger = new LogHelper(ctx);
-
         // log the activation
-        this.logger.log(LogService.LOG_INFO,
-                "Activated Notification to MQTT bridge");
+        this.logger.info("Activated Notification to MQTT bridge");
 
         // store the bundle context
         this.context = ctx;
@@ -174,8 +177,7 @@ public class MqttBridge implements EventHandler, ManagedService
     {
         // log the de-activation
         if (this.logger != null)
-            this.logger.log(LogService.LOG_INFO,
-                    "Deactivated Notification to MQTT bridge");
+            this.logger.info("Deactivated Notification to MQTT bridge");
 
         // de-register the event handler
         this.unRegisterService();
@@ -234,9 +236,8 @@ public class MqttBridge implements EventHandler, ManagedService
                 }
                 catch (Exception e)
                 {
-                    this.logger.log(LogService.LOG_ERROR,
-                            "Device status deserialization error "
-                                    + e.getClass().getSimpleName());
+                    this.logger.error("Device status deserialization error "
+                            + e.getClass().getSimpleName());
                 }
 
                 // handle
@@ -512,6 +513,20 @@ public class MqttBridge implements EventHandler, ManagedService
     {
         // update the bundle context
         this.context = context;
+    }
+
+    public void setLogService(LogService logService)
+    {
+        this.logService.set(logService);
+        this.logger = logService.getLogger(MqttBridge.class);
+    }
+
+    public void unsetLogService(LogService logService)
+    {
+        if (this.logService.compareAndSet(logService, null))
+        {
+            this.logger = null;
+        }
     }
 
     /**

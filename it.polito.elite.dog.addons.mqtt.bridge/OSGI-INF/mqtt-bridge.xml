@@ -5,4 +5,5 @@
       <provide interface="org.osgi.service.cm.ManagedService"/>
    </service>
    <property name="service.pid" type="String" value="it.polito.elite.dog.addons.mqtt.bridge"/>
+   <reference bind="setLogService" cardinality="1..1" interface="org.osgi.service.log.LogService" name="LogService" policy="dynamic" unbind="unsetLogService"/>
 </scr:component>

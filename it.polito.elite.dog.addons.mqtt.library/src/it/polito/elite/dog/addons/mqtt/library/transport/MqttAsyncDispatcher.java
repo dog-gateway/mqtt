@@ -41,12 +41,11 @@ import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.eclipse.paho.client.mqttv3.MqttException;
 import org.eclipse.paho.client.mqttv3.MqttMessage;
 import org.eclipse.paho.client.mqttv3.persist.MqttDefaultFilePersistence;
-import org.osgi.service.log.LogService;
+import org.osgi.service.log.Logger;
 
 import it.polito.elite.dog.addons.mqtt.library.transport.ssl.SslUtils;
 
 import it.polito.elite.dog.addons.mqtt.library.transport.tasks.ReconnectionTimerTask;
-import it.polito.elite.dog.core.library.util.LogHelper;
 
 /**
  * A wrapper class aimed at offering an easy interface to asynchronously
@@ -65,7 +64,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
     private static final int RECONNECTION_TIMEOUT = 30000;
 
     // the class-level logger
-    private LogHelper logger;
+    private Logger logger;
     // the MQTT asynchronous client
     private MqttAsyncClient asyncClient;
     // the MQTT connection options
@@ -119,7 +118,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
      *            The password to adopt for connecting to the broker.
      */
     public MqttAsyncDispatcher(String brokerUrl, String clientId,
-            String username, String password, LogHelper logger)
+            String username, String password, Logger logger)
     {
         this.initCommon(brokerUrl, clientId, username, password, null, null,
                 null, true, true, logger);
@@ -151,7 +150,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
      */
     public MqttAsyncDispatcher(String brokerUrl, String clientId,
             String username, String password, boolean autoReconnect,
-            LogHelper logger)
+            Logger logger)
     {
         this.initCommon(brokerUrl, clientId, username, password, null, null,
                 null, autoReconnect, true, logger);
@@ -159,7 +158,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
 
     private void initCommon(String brokerUrl, String clientId, String username,
             String password, String sslCa, String sslCert, String sslPrivateKey,
-            boolean autoReconnect, boolean cleanSession, LogHelper logger)
+            boolean autoReconnect, boolean cleanSession, Logger logger)
     {
         this.brokerUrl = brokerUrl;
         this.clientId = clientId;
@@ -206,7 +205,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         catch (MqttException e)
         {
             // log the error
-            this.logger.log(LogService.LOG_ERROR,
+            this.logger.error(
                     "Error while creating the MQTT asynchronous client", e);
         }
     }
@@ -257,8 +256,8 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
                         | NoSuchAlgorithmException | CertificateException
                         | UnrecoverableKeyException | KeyManagementException ex)
                 {
-                    this.logger.log(LogService.LOG_ERROR,
-                            "unable to create SSL Socket Factory:\n" + ex);
+                    this.logger.error(
+                            "Unable to create SSL Socket Factory:\n" + ex);
                 }
             }
             else
@@ -273,8 +272,8 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
                         | NoSuchAlgorithmException | CertificateException
                         | UnrecoverableKeyException | KeyManagementException ex)
                 {
-                    this.logger.log(LogService.LOG_ERROR,
-                            "unable to create SSL Socket Factory:\n{}" + ex);
+                    this.logger.info(
+                            "Unable to create SSL Socket Factory:\n{}" + ex);
                 }
 
             }
@@ -297,7 +296,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         // An application may choose to implement reconnection
         // logic at this point. This preliminary implementation simply logs the
         // error.
-        this.logger.log(LogService.LOG_WARNING,
+        this.logger.warn(
                 "Lost connection with the given MQTT broker...Reconnecting in 30s",
                 t);
 
@@ -312,9 +311,8 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         // server. The token passed in here is the same one
         // that was returned from the original call to publish.
 
-        this.logger.log(LogService.LOG_INFO,
-                "Delivery complete callback: Publish Completed "
-                        + Arrays.toString(token.getTopics()));
+        this.logger.info("Delivery complete callback: Publish Completed "
+                + Arrays.toString(token.getTopics()));
 
     }
 
@@ -339,9 +337,9 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
 
         // empty in this case as this dispatcher only publishes data...
-        this.logger.log(LogService.LOG_INFO, "Unknow arg0:" + arg0);
-        this.logger.log(LogService.LOG_INFO,
-                "MqttMessage: " + new String(mqttMessage.getPayload()));
+        this.logger.info("Unknow arg0:" + arg0);
+        this.logger
+                .info("MqttMessage: " + new String(mqttMessage.getPayload()));
     }
 
     /**
@@ -393,7 +391,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_WARNING,
+            this.logger.info(
                     "Error while performing connection to the given MQTT broker",
                     e);
         }
@@ -412,7 +410,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_WARNING,
+            this.logger.warn(
                     "Error while performing synchronous connection to the given MQTT broker",
                     e);
         }
@@ -458,8 +456,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
             catch (MqttException e)
             {
                 // TODO can be checked in a more refined manner
-                this.logger.log(LogService.LOG_WARNING,
-                        "Error while delivering message", e);
+                this.logger.warn("Error while delivering message", e);
             }
         }
     }
@@ -484,8 +481,8 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_WARNING,
-                    "Error while performing connection to the given MQTT broker",
+            this.logger.warn(
+                    "Error while performing connection to the given MQTT broker {}",
                     e);
         }
 
@@ -503,10 +500,10 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_ERROR, "Error while disconnecting");
+            this.logger.error("Error while disconnecting");
         }
     }
-    
+
     /**
      * Closes a client
      */
@@ -518,7 +515,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_ERROR, "Error while closing the client.");
+            this.logger.error("Error while closing the client.");
         }
     }
 
@@ -532,8 +529,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_ERROR, "Mqtt subscribe exception: ",
-                    e);
+            this.logger.error("Mqtt subscribe exception: ", e);
         }
     }
 
@@ -573,8 +569,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         }
         catch (MqttException e)
         {
-            this.logger.log(LogService.LOG_ERROR,
-                    "Mqtt unsubscribe exception: ", e);
+            this.logger.error("Mqtt unsubscribe exception: ", e);
         }
     }
 
@@ -625,7 +620,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
     public void onSuccess(IMqttToken arg0)
     {
         // TODO Auto-generated method stub
-        this.logger.log(LogService.LOG_INFO, "Success: " + arg0);
+        this.logger.info("Success: " + arg0);
     }
 
 }
