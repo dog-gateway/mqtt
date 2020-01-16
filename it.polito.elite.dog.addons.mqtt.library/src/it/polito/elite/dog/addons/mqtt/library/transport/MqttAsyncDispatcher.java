@@ -235,6 +235,9 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         {
             connectionOptions.setUserName(username);
         }
+        
+        // disable hostname verification
+        connectionOptions.setHttpsHostnameVerificationEnabled(false);
 
         // Allow for connections with CA-only. This permits to set-up an
         // encrypted
