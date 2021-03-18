@@ -28,10 +28,11 @@ import java.util.Map;
 
 import javax.measure.Measure;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.map.SerializationConfig;
-import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
 import org.osgi.service.log.LogService;
+
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 
 /**
  * A simple implementation of {@link StateTranslator} supporting basic
@@ -54,11 +55,11 @@ public class SimpleStateTranslator implements StateTranslator
 		// initialize the instance-wide object mapper
 		this.mapper = new ObjectMapper();
 		// set the mapper pretty printing
-		this.mapper.enable(SerializationConfig.Feature.INDENT_OUTPUT);
+		this.mapper.enable(SerializationFeature.INDENT_OUTPUT);
 		// avoid empty arrays and null values
 		this.mapper.configure(
-				SerializationConfig.Feature.WRITE_EMPTY_JSON_ARRAYS, false);
-		this.mapper.setSerializationInclusion(Inclusion.NON_NULL);
+				SerializationFeature.WRITE_EMPTY_JSON_ARRAYS, false);
+		this.mapper.setSerializationInclusion(Include.NON_NULL);
 	}
 
 	/*
