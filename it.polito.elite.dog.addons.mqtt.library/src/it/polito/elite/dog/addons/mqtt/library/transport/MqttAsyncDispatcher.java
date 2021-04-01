@@ -124,6 +124,14 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
                 null, true, true, logger);
     }
 
+    public MqttAsyncDispatcher(String brokerUrl, String clientId,
+            String username, String password, String sslCa, String sslCert,
+            String sslPrivateKey, Logger logger)
+    {
+        this.initCommon(brokerUrl, clientId, username, password, sslCa, sslCert,
+                sslPrivateKey, true, true, logger);
+    }
+
     /**
      * The class constructor. Builds a new instance of
      * {@link MqttAsyncDispatcher} pointing to the given brokerUrl and adopting
@@ -154,6 +162,14 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
     {
         this.initCommon(brokerUrl, clientId, username, password, null, null,
                 null, autoReconnect, true, logger);
+    }
+
+    public MqttAsyncDispatcher(String brokerUrl, String clientId,
+            String username, String password, String sslCa, String sslCert,
+            String sslPrivateKey, boolean autoReconnect, Logger logger)
+    {
+        this.initCommon(brokerUrl, clientId, username, password, sslCa, sslCert,
+                sslPrivateKey, autoReconnect, true, logger);
     }
 
     private void initCommon(String brokerUrl, String clientId, String username,
@@ -235,7 +251,7 @@ public class MqttAsyncDispatcher implements MqttCallback, IMqttActionListener
         {
             connectionOptions.setUserName(username);
         }
-        
+
         // disable hostname verification
         connectionOptions.setHttpsHostnameVerificationEnabled(false);
 
