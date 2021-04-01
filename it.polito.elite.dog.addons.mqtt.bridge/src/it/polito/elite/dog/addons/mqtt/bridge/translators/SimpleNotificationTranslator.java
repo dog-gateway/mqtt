@@ -17,6 +17,10 @@
  */
 package it.polito.elite.dog.addons.mqtt.bridge.translators;
 
+import com.fasterxml.jackson.annotation.JsonInclude.Include;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+
 import it.polito.elite.dog.core.library.model.notification.Notification;
 
 import java.io.IOException;
@@ -28,9 +32,7 @@ import java.util.HashMap;
 
 import javax.measure.DecimalMeasure;
 
-import org.codehaus.jackson.map.ObjectMapper;
-import org.codehaus.jackson.map.SerializationConfig;
-import org.codehaus.jackson.map.annotate.JsonSerialize.Inclusion;
+
 import org.osgi.service.log.Logger;
 
 /**
@@ -50,11 +52,11 @@ public class SimpleNotificationTranslator implements NotificationTranslator
         // initialize the instance-wide object mapper
         this.mapper = new ObjectMapper();
         // set the mapper pretty printing
-        this.mapper.enable(SerializationConfig.Feature.INDENT_OUTPUT);
+        this.mapper.enable(SerializationFeature.INDENT_OUTPUT);
         // avoid empty arrays and null values
         this.mapper.configure(
-                SerializationConfig.Feature.WRITE_EMPTY_JSON_ARRAYS, false);
-        this.mapper.setSerializationInclusion(Inclusion.NON_NULL);
+                SerializationFeature.WRITE_EMPTY_JSON_ARRAYS, false);
+        this.mapper.setSerializationInclusion(Include.NON_NULL);
     }
 
     @Override
